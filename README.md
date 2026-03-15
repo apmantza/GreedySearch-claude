@@ -33,7 +33,7 @@ export CHROME_PATH="/path/to/chrome"
 ## Install
 
 ```bash
-git clone https://github.com/apmantza/GreedySearch
+git clone https://github.com/apmantza/GreedySearch-claude
 cd GreedySearch
 node setup.mjs
 ```
