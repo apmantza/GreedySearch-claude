@@ -111,11 +111,13 @@ async function main() {
     process.exit(1);
   }
 
-  const tabFlagIdx = args.indexOf('--tab');
-  const tabPrefix = tabFlagIdx !== -1 ? args[tabFlagIdx + 1] : null;
+  const short = args.includes('--short');
+  const rest  = args.filter(a => a !== '--short');
+  const tabFlagIdx = rest.indexOf('--tab');
+  const tabPrefix = tabFlagIdx !== -1 ? rest[tabFlagIdx + 1] : null;
   const query = tabFlagIdx !== -1
-    ? args.filter((_, i) => i !== tabFlagIdx && i !== tabFlagIdx + 1).join(' ')
-    : args.join(' ');
+    ? rest.filter((_, i) => i !== tabFlagIdx && i !== tabFlagIdx + 1).join(' ')
+    : rest.join(' ');
 
   try {
     await cdp(['list']);
@@ -137,9 +139,10 @@ async function main() {
 
     const { answer, sources } = await extractAnswer(tab);
     if (!answer) throw new Error('No answer extracted — Google AI Mode may not have responded');
+    const out = short ? answer.slice(0, 300).replace(/\s+\S*$/, '') + '…' : answer;
 
     const finalUrl = await cdp(['eval', tab, 'document.location.href']).catch(() => url);
-    process.stdout.write(JSON.stringify({ query, url: finalUrl, answer, sources }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ query, url: finalUrl, answer: out, sources }, null, 2) + '\n');
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);
     process.exit(1);

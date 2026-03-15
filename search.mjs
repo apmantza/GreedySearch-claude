@@ -97,8 +97,11 @@ async function closeTab(targetId) {
   } catch { /* best-effort */ }
 }
 
-function runExtractor(script, query, tabPrefix = null) {
-  const extraArgs = tabPrefix ? ['--tab', tabPrefix] : [];
+function runExtractor(script, query, tabPrefix = null, short = false) {
+  const extraArgs = [
+    ...(tabPrefix ? ['--tab', tabPrefix] : []),
+    ...(short    ? ['--short']          : []),
+  ];
   return new Promise((resolve, reject) => {
     const proc = spawn('node', [join(__dir, 'extractors', script), query, ...extraArgs], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -134,8 +137,10 @@ async function main() {
     process.exit(1);
   }
 
-  const engine = args[0].toLowerCase();
-  const query  = args.slice(1).join(' ');
+  const short  = args.includes('--short');
+  const rest   = args.filter(a => a !== '--short');
+  const engine = rest[0].toLowerCase();
+  const query  = rest.slice(1).join(' ');
 
   if (engine === 'all') {
     await cdp(['list']); // refresh pages cache
@@ -153,7 +158,7 @@ async function main() {
     // All tabs open — now run extractors in parallel (they nav+submit+wait independently)
     const results = await Promise.allSettled(
       ALL_ENGINES.map((e, i) =>
-        runExtractor(ENGINES[e], query, tabs[i]).then(r => ({ engine: e, ...r }))
+        runExtractor(ENGINES[e], query, tabs[i], short).then(r => ({ engine: e, ...r }))
       )
     );
 
@@ -181,7 +186,7 @@ async function main() {
   }
 
   try {
-    const result = await runExtractor(script, query);
+    const result = await runExtractor(script, query, null, short);
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);

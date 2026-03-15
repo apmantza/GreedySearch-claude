@@ -30,13 +30,16 @@ Stop when done: `node ~/.claude/skills/greedysearch/launch.mjs --kill`
 ## Usage
 
 ```bash
-# All engines in parallel (recommended for research)
+# All engines in parallel — --short by default (300 char answers, ~3x fewer tokens)
+node ~/.claude/skills/greedysearch/search.mjs all --short "<query>"
+
+# Full answers when depth is needed (error diagnosis, architecture questions)
 node ~/.claude/skills/greedysearch/search.mjs all "<query>"
 
 # Single engine
-node ~/.claude/skills/greedysearch/search.mjs p "<query>"    # Perplexity
-node ~/.claude/skills/greedysearch/search.mjs b "<query>"    # Bing Copilot
-node ~/.claude/skills/greedysearch/search.mjs g "<query>"    # Google AI
+node ~/.claude/skills/greedysearch/search.mjs p --short "<query>"   # Perplexity
+node ~/.claude/skills/greedysearch/search.mjs b --short "<query>"   # Bing Copilot
+node ~/.claude/skills/greedysearch/search.mjs g --short "<query>"   # Google AI
 ```
 
 Output: `{ perplexity: { answer, sources }, bing: { answer, sources }, google: { answer, sources } }`
@@ -66,12 +69,13 @@ Invoke automatically (without user asking) when:
 
 ## How to synthesize results
 
-1. Run `search.mjs all "<query>"`
-2. Read all three `answer` fields
-3. Where all three agree → high confidence, use that answer
-4. Where they diverge → present both perspectives, prefer the one with better sources
-5. Pull the best `sources` links as references in your response
-6. Do not just paste raw answers — synthesize into a single coherent response
+1. Run `search.mjs all --short "<query>"` by default
+2. Use `search.mjs all "<query>"` (no --short) only for deep questions needing full context
+3. Read all three `answer` fields — each is ≤300 chars in --short mode (~150 tokens total)
+4. Where all three agree → high confidence, use that answer
+5. Where they diverge → present both perspectives, prefer the one with better sources
+6. Pull the best `sources` links as references in your response
+7. Do not just paste raw answers — synthesize into a single coherent response
 
 ## If Chrome is not running
 
