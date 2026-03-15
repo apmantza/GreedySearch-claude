@@ -137,6 +137,18 @@ function runExtractor(script, query, tabPrefix = null, short = false) {
 }
 
 
+async function ensureChrome() {
+  try {
+    await cdp(['list'], 3000);
+  } catch {
+    process.stderr.write('Chrome not running — auto-launching GreedySearch Chrome...\n');
+    await new Promise((resolve, reject) => {
+      const proc = spawn('node', [join(__dir, 'launch.mjs')], { stdio: 'inherit' });
+      proc.on('close', code => code === 0 ? resolve() : reject(new Error('launch.mjs failed')));
+    });
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.length < 2 || args[0] === '--help') {
@@ -152,6 +164,8 @@ async function main() {
     ].join('\n') + '\n');
     process.exit(1);
   }
+
+  await ensureChrome();
 
   const short  = args.includes('--short');
   const rest   = args.filter(a => a !== '--short');

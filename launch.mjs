@@ -16,17 +16,42 @@
 
 import { spawn } from 'child_process';
 import { existsSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, unlinkSync } from 'fs';
-import { tmpdir, homedir } from 'os';
+import { tmpdir, homedir, platform } from 'os';
 import { join } from 'path';
 import http from 'http';
 
-const PORT          = 9223;
-const CHROME_EXE    = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
-const PROFILE_DIR   = join(tmpdir(), 'greedysearch-chrome-profile');
-const ACTIVE_PORT   = join(PROFILE_DIR, 'DevToolsActivePort');
-const SYSTEM_PORT   = join(homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'DevToolsActivePort');
-const SYSTEM_BACKUP = join(homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'DevToolsActivePort.bak');
-const PID_FILE      = join(tmpdir(), 'greedysearch-chrome.pid');
+const PORT        = 9223;
+const PROFILE_DIR = join(tmpdir(), 'greedysearch-chrome-profile');
+const ACTIVE_PORT = join(PROFILE_DIR, 'DevToolsActivePort');
+const PID_FILE    = join(tmpdir(), 'greedysearch-chrome.pid');
+
+function findChrome() {
+  const os = platform();
+  const candidates = os === 'win32' ? [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ] : os === 'darwin' ? [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ] : [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/snap/bin/chromium',
+  ];
+  return candidates.find(existsSync) || null;
+}
+
+function systemPortPath() {
+  const os = platform();
+  if (os === 'win32') return join(homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'DevToolsActivePort');
+  if (os === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'DevToolsActivePort');
+  return join(homedir(), '.config', 'google-chrome', 'DevToolsActivePort');
+}
+
+const SYSTEM_PORT   = systemPortPath();
+const SYSTEM_BACKUP = SYSTEM_PORT + '.bak';
 
 const CHROME_FLAGS = [
   `--remote-debugging-port=${PORT}`,
@@ -136,9 +161,10 @@ async function main() {
     return;
   }
 
-  if (!existsSync(CHROME_EXE)) {
-    console.error(`Chrome not found at: ${CHROME_EXE}`);
-    console.error('Edit CHROME_EXE in launch.mjs to match your Chrome path.');
+  const CHROME_EXE = process.env.CHROME_PATH || findChrome();
+  if (!CHROME_EXE) {
+    console.error('Chrome not found. Tried standard paths for your OS.');
+    console.error('Set the CHROME_PATH environment variable to point to your Chrome binary.');
     process.exit(1);
   }
 

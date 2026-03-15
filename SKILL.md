@@ -18,14 +18,18 @@ to synthesize — where they agree, confidence is high; where they diverge, flag
 
 ## Prerequisites
 
-Chrome must be running (GreedySearch instance):
+Chrome launches automatically if not running. To manage manually:
 
 ```bash
-node ~/.claude/skills/greedysearch/launch.mjs
+node ~/.claude/skills/greedysearch/launch.mjs           # start
+node ~/.claude/skills/greedysearch/launch.mjs --status  # check
+node ~/.claude/skills/greedysearch/launch.mjs --kill    # stop
 ```
 
-Check status: `node ~/.claude/skills/greedysearch/launch.mjs --status`
-Stop when done: `node ~/.claude/skills/greedysearch/launch.mjs --kill`
+On macOS/Linux, set `CHROME_PATH` if Chrome is not found automatically:
+```bash
+CHROME_PATH="/path/to/chrome" node ~/.claude/skills/greedysearch/search.mjs all "query"
+```
 
 ## Usage
 
