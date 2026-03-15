@@ -17,9 +17,9 @@ Claude's training has a cutoff. For current library APIs, new framework releases
 
 ## Prerequisites
 
-- Node.js 18+
-- Google Chrome installed
-- [chrome-cdp-skill](https://github.com/pasky/chrome-cdp-skill) — installed automatically by `setup.mjs`
+- **Node.js 18+** — uses only built-in modules, no `npm install` needed
+- **Google Chrome** (standard install)
+- **Git** — used by `setup.mjs` to clone [chrome-cdp-skill](https://github.com/pasky/chrome-cdp-skill) if not already present
 
 ## Install
 
