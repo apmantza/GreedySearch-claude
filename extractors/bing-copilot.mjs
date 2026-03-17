@@ -12,7 +12,7 @@ import { readFileSync, existsSync } from 'fs';
 import { spawn } from 'child_process';
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
-import { dismissConsent } from './consent.mjs';
+import { dismissConsent, handleVerification } from './consent.mjs';
 
 const CDP = join(homedir(), '.claude', 'skills', 'chrome-cdp', 'scripts', 'cdp.mjs');
 const PAGES_CACHE = `${tmpdir().replace(/\\/g, '/')}/cdp-pages.json`;
@@ -129,7 +129,9 @@ async function main() {
 
     // Navigate to Copilot homepage and use the chat input
     await cdp(['nav', tab, 'https://copilot.microsoft.com/'], 35000);
+    await new Promise(r => setTimeout(r, 1500));
     await dismissConsent(tab, cdp);
+    await handleVerification(tab, cdp, 60000);
 
     // Wait for React app to mount #userInput (up to 8s)
     const deadline = Date.now() + 8000;
