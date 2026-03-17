@@ -29,6 +29,8 @@ const MODE_PROMPTS = {
   debug: `You are a senior engineer debugging someone else's code. You have fresh eyes — no prior assumptions about what should work. Given the bug description and relevant code: (1) identify the most likely root cause, being specific about the exact line or condition, (2) explain why it manifests the way it does, (3) suggest the minimal fix, (4) flag any other latent bugs you notice while reading. Do not guess vaguely — reason from the code. If you need information that isn't provided, say exactly what you'd add to narrow it down.`,
 };
 
+const MAX_CONTEXT_CHARS = 6000;   // Copilot textarea limit ~10240 minus preamble/task overhead
+
 const STREAM_POLL_INTERVAL = 800;
 const STREAM_STABLE_ROUNDS = 4;
 const STREAM_TIMEOUT = 120000;  // coding tasks take longer
@@ -259,7 +261,11 @@ async function runEngine(engineName, task, context, mode, tabPrefix) {
       const existing = pages.find(p => p.url.includes(engine.domain));
       if (existing) tab = existing.targetId.slice(0, 8);
     }
-    if (!tab) tab = await openNewTab();
+    if (!tab) {
+      tab = await openNewTab();
+      await new Promise(r => setTimeout(r, 800));  // let tab initialize
+      await cdp(['list']);  // refresh cache so new tab is resolvable on Windows
+    }
   }
 
   // Navigate to fresh conversation — fall back to new tab if cached tab is stale
@@ -268,6 +274,8 @@ async function runEngine(engineName, task, context, mode, tabPrefix) {
   } catch (e) {
     if (e.message.includes('No target matching')) {
       tab = await openNewTab();
+      await new Promise(r => setTimeout(r, 800));
+      await cdp(['list']);  // refresh cache so new tab is resolvable on Windows
       await cdp(['nav', tab, engine.url], 35000);
     } else throw e;
   }
@@ -279,8 +287,13 @@ async function runEngine(engineName, task, context, mode, tabPrefix) {
 
   // Build the prompt
   const preamble = MODE_PROMPTS[mode] || null;
-  const body = context
-    ? `${task}\n\nHere is the relevant code/context:\n\`\`\`\n${context}\n\`\`\``
+  let ctx = context;
+  if (ctx && ctx.length > MAX_CONTEXT_CHARS) {
+    process.stderr.write(`[coding-task] Context truncated from ${ctx.length} to ${MAX_CONTEXT_CHARS} chars\n`);
+    ctx = ctx.slice(0, MAX_CONTEXT_CHARS) + '\n\n[... truncated ...]';
+  }
+  const body = ctx
+    ? `${task}\n\nHere is the relevant code/context:\n\`\`\`\n${ctx}\n\`\`\``
     : task;
   const prompt = preamble ? `${preamble}\n\n---\n\n${body}` : body;
 
