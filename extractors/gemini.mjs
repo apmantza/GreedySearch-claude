@@ -108,12 +108,21 @@ async function extractAnswer(tab) {
   const answer = await cdp(['eval', tab, `window.__geminiClipboard || ''`]);
   if (!answer) throw new Error('Clipboard interceptor returned empty text');
 
-  // Sources: links rendered in the page (best-effort; Shadow DOM may hide some)
+  // Sources: click the first citation button to open the side panel, then extract URLs.
+  const hasCitations = await cdp(['eval', tab,
+    `!!document.querySelector('button[aria-label*="citation"]')`
+  ]).catch(() => 'false');
+
+  if (hasCitations === 'true') {
+    await cdp(['eval', tab, `document.querySelector('button[aria-label*="citation"]')?.click()`]);
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
   const raw = await cdp(['eval', tab, `
     (function() {
       var sources = Array.from(document.querySelectorAll('a[href^="http"]'))
         .map(a => ({ url: a.href.split('#')[0], title: a.innerText?.trim().split('\\n')[0] || '' }))
-        .filter(s => s.url && !s.url.includes('gemini.google') && !s.url.includes('gstatic') && !s.url.includes('google.com/search'))
+        .filter(s => s.url && !s.url.includes('google.') && !s.url.includes('gemini.google') && !s.url.includes('gstatic') && !s.url.includes('googleapis'))
         .filter((v, i, arr) => arr.findIndex(x => x.url === v.url) === i)
         .slice(0, 8);
       return JSON.stringify(sources);

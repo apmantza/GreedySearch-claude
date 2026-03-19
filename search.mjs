@@ -48,12 +48,17 @@ const ENGINES = {
   stack:      'stackoverflow-ai.mjs',
 };
 
-const ALL_ENGINES = ['perplexity', 'bing', 'google']; // stackoverflow: disabled until polling fix
+const ALL_ENGINES = ['perplexity', 'bing', 'google', 'gemini'];
+
+const ENGINE_TIMEOUTS = {
+  gemini: 150000, // Gemini streams slowly; give it 2.5 min
+};
 
 const ENGINE_DOMAINS = {
   perplexity: 'perplexity.ai',
   bing:       'copilot.microsoft.com',
   google:     'google.com',
+  gemini:     'gemini.google.com',
   stackoverflow: 'stackoverflow.com',
 };
 
@@ -298,7 +303,7 @@ async function main() {
     // All tabs assigned — run extractors in parallel
     const results = await Promise.allSettled(
       ALL_ENGINES.map((e, i) =>
-        runExtractor(ENGINES[e], query, tabs[i], short).then(r => ({ engine: e, ...r }))
+        runExtractor(ENGINES[e], query, tabs[i], short, ENGINE_TIMEOUTS[e] || 90000).then(r => ({ engine: e, ...r }))
       )
     );
 
@@ -328,7 +333,7 @@ async function main() {
   }
 
   try {
-    const result = await runExtractor(script, query, null, short);
+    const result = await runExtractor(script, query, null, short, ENGINE_TIMEOUTS[engine] || 90000);
     if (fetchSource && result.sources?.length > 0) {
       result.topSource = await fetchTopSource(result.sources[0].url);
     }
