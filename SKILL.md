@@ -2,7 +2,7 @@
 name: greedysearch
 description: >
   AI-powered multi-engine search that returns synthesized answers from Perplexity,
-  Bing Copilot, and Google AI simultaneously — clean JSON, no manual tab work.
+  Bing Copilot, Google AI, and Gemini simultaneously — clean JSON, no manual tab work.
   TRIGGER when: user asks about current libraries/APIs/frameworks (post-2024),
   pastes an error or stack trace, asks "best way to do X", needs dependency/tool
   selection, asks about breaking changes or version diffs, needs architecture
@@ -12,8 +12,8 @@ description: >
 
 # GreedySearch — Multi-Engine AI Search
 
-Runs Perplexity, Bing Copilot, and Google AI in parallel. Returns clean JSON with
-`answer` + `sources` from each engine. Treat the three answers as peer AI opinions
+Runs Perplexity, Bing Copilot, Google AI, and Gemini in parallel. Returns clean JSON with
+`answer` + `sources` from each engine. Treat the four answers as peer AI opinions
 to synthesize — where they agree, confidence is high; where they diverge, flag it.
 
 ## Prerequisites
@@ -47,12 +47,13 @@ node ~/.claude/skills/greedysearch/search.mjs all --short --out /tmp/gs.json "<q
 node ~/.claude/skills/greedysearch/search.mjs all --short --fetch-top-source "<query>"
 
 # Single engine
-node ~/.claude/skills/greedysearch/search.mjs p --short "<query>"   # Perplexity
-node ~/.claude/skills/greedysearch/search.mjs b --short "<query>"   # Bing Copilot
-node ~/.claude/skills/greedysearch/search.mjs g --short "<query>"   # Google AI
+node ~/.claude/skills/greedysearch/search.mjs p --short "<query>"    # Perplexity
+node ~/.claude/skills/greedysearch/search.mjs b --short "<query>"    # Bing Copilot
+node ~/.claude/skills/greedysearch/search.mjs g --short "<query>"    # Google AI
+node ~/.claude/skills/greedysearch/search.mjs gem --short "<query>"  # Gemini
 ```
 
-Output: `{ perplexity: { answer, sources }, bing: { answer, sources }, google: { answer, sources } }`
+Output: `{ perplexity: { answer, sources }, bing: { answer, sources }, google: { answer, sources }, gemini: { answer, sources } }`
 
 ## Engine routing
 
@@ -65,6 +66,7 @@ Output: `{ perplexity: { answer, sources }, bing: { answer, sources }, google: {
 | Breaking changes / release notes | `p` | Aggressive real-time retrieval, cites sources |
 | Research needing citations | `p` | Answer-first with verifiable sources |
 | Security / CVEs | `p` | Finds actual advisories |
+| Deep technical explanation | `gem` | Gemini gives detailed, well-structured breakdowns |
 | Dependency / tool selection | `all` | Need community consensus across sources |
 | Architecture validation | `all` | Multiple perspectives reduce bias |
 | Anything uncertain | `all` | Where they agree = high confidence |
@@ -83,8 +85,8 @@ Invoke automatically (without user asking) when:
 
 1. Run `search.mjs all --short "<query>"` by default
 2. Use `search.mjs all "<query>"` (no --short) only for deep questions needing full context
-3. Read all three `answer` fields — each is ≤300 chars in --short mode (~150 tokens total)
-4. Where all three agree → high confidence, use that answer
+3. Read all four `answer` fields — each is ≤300 chars in --short mode (~200 tokens total)
+4. Where all four agree → high confidence, use that answer
 5. Where they diverge → present both perspectives, prefer the one with better sources
 6. Pull the best `sources` links as references in your response
 7. Do not just paste raw answers — synthesize into a single coherent response

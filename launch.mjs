@@ -138,6 +138,30 @@ function restoreCdpToMainChrome() {
   }
 }
 
+// Pre-grant clipboard access for search engines that need it (Perplexity, Gemini).
+// Chrome reads these on startup; setting 1 = ALLOW, 0 = ASK (default).
+function seedClipboardPermissions() {
+  const prefsPath = join(PROFILE_DIR, 'Default', 'Preferences');
+  let prefs = {};
+  if (existsSync(prefsPath)) {
+    try { prefs = JSON.parse(readFileSync(prefsPath, 'utf8')); } catch {}
+  }
+  const ts = String(BigInt(Date.now()) * 10000n + 116444736000000000n); // Chrome FILETIME µs
+  prefs.profile ??= {};
+  prefs.profile.content_settings ??= {};
+  prefs.profile.content_settings.exceptions ??= {};
+  prefs.profile.content_settings.exceptions.clipboard ??= {};
+  const clip = prefs.profile.content_settings.exceptions.clipboard;
+  for (const origin of [
+    'https://www.perplexity.ai:443,*',
+    'https://gemini.google.com:443,*',
+    'https://copilot.microsoft.com:443,*',
+  ]) {
+    clip[origin] = { last_modified: ts, setting: 1 };
+  }
+  writeFileSync(prefsPath, JSON.stringify(prefs), 'utf8');
+}
+
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -184,7 +208,8 @@ async function main() {
     process.exit(1);
   }
 
-  mkdirSync(PROFILE_DIR, { recursive: true });
+  mkdirSync(join(PROFILE_DIR, 'Default'), { recursive: true });
+  seedClipboardPermissions();
 
   console.log(`Launching GreedySearch Chrome on port ${PORT}...`);
   const proc = spawn(CHROME_EXE, CHROME_FLAGS, {
