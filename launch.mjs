@@ -3,7 +3,7 @@
 //
 // This Chrome instance uses --disable-features=DevToolsPrivacyUI which suppresses
 // the "Allow remote debugging?" dialog entirely. It runs on port 9222 so it doesn't
-// conflict with your main Chrome session (which may use port 9223).
+// conflict with your main Chrome session.
 //
 // On launch, it overwrites the DevToolsActivePort file that cdp.mjs reads so all
 // extractors automatically target the GreedySearch Chrome, with no code changes.
@@ -95,7 +95,7 @@ async function writePortFile(timeoutMs = 15000) {
     if (ok) {
       try {
         const { webSocketDebuggerUrl } = JSON.parse(body);
-        // webSocketDebuggerUrl = "ws://localhost:9223/devtools/browser/..."
+        // webSocketDebuggerUrl = "ws://localhost:9222/devtools/browser/..."
         const wsPath = new URL(webSocketDebuggerUrl).pathname;
         // Write in DevToolsActivePort format: port on line 1, path on line 2
         const content = `${PORT}\n${wsPath}`;
@@ -114,7 +114,18 @@ function redirectCdpToGreedySearch() {
     copyFileSync(SYSTEM_PORT, SYSTEM_BACKUP);
   }
   // Point cdp.mjs to our dedicated Chrome's port
-  copyFileSync(ACTIVE_PORT, SYSTEM_PORT);
+  // On Windows, main Chrome may hold a lock on SYSTEM_PORT (EBUSY).
+  // Fall back to writeFileSync which uses CreateFile/WriteFile instead of CopyFile.
+  try {
+    copyFileSync(ACTIVE_PORT, SYSTEM_PORT);
+  } catch (e) {
+    if (e.code !== 'EBUSY') throw e;
+    try {
+      writeFileSync(SYSTEM_PORT, readFileSync(ACTIVE_PORT, 'utf8'), 'utf8');
+    } catch {
+      console.warn('Warning: could not redirect DevToolsActivePort (file busy) — cdp.mjs will use existing port.');
+    }
+  }
 }
 
 function restoreCdpToMainChrome() {
@@ -161,7 +172,7 @@ async function main() {
       console.log('DevToolsActivePort redirected.');
       return;
     }
-    // Stale PID — process alive but not Chrome on port 9223. Fall through to fresh launch.
+    // Stale PID — process alive but not Chrome on port 9222. Fall through to fresh launch.
     console.log(`Stale PID ${existing} detected (not Chrome on port ${PORT}) — launching fresh.`);
     try { unlinkSync(PID_FILE); } catch {}
   }
