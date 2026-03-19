@@ -48,11 +48,39 @@ const ENGINES = {
   stack:      'stackoverflow-ai.mjs',
 };
 
-const ALL_ENGINES = ['perplexity', 'bing', 'google', 'gemini'];
+const ALL_ENGINES = ['perplexity', 'bing', 'google']; // gemini reserved as synthesizer
 
 const ENGINE_TIMEOUTS = {
   gemini: 150000, // Gemini streams slowly; give it 2.5 min
 };
+
+function deduplicateSources(out) {
+  const map = new Map();
+  for (const data of Object.values(out)) {
+    for (const s of (data.sources || [])) {
+      if (!s.url) continue;
+      if (!map.has(s.url)) map.set(s.url, { url: s.url, title: s.title || '', engines: [] });
+      map.get(s.url).engines.push(data.engine);
+    }
+  }
+  return Array.from(map.values())
+    .sort((a, b) => b.engines.length - a.engines.length)
+    .slice(0, 8);
+}
+
+function buildSynthesisPrompt(query, sources) {
+  const lines = sources.map(s =>
+    `[${s.engines.length}/${ALL_ENGINES.length}] ${s.url}${s.title ? ' — ' + s.title.slice(0, 60) : ''}`
+  );
+  return [
+    `Query: ${query}`,
+    '',
+    'Top sources by consensus across 3 AI search engines:',
+    ...lines,
+    '',
+    'Synthesize a direct answer (max 500 chars). List the most relevant sources.',
+  ].join('\n');
+}
 
 const ENGINE_DOMAINS = {
   perplexity: 'perplexity.ai',
@@ -264,12 +292,14 @@ async function main() {
   const full        = args.includes('--full');
   const short       = !full;   // brief by default; --full opts into complete answers
   const fetchSource = args.includes('--fetch-top-source');
+  const synthesize  = args.includes('--synthesize');
   const outIdx      = args.indexOf('--out');
   const outFile     = outIdx !== -1 ? args[outIdx + 1] : null;
   const rest        = args.filter((a, i) =>
     a !== '--full' &&
     a !== '--short' &&  // keep accepting --short for back-compat
     a !== '--fetch-top-source' &&
+    a !== '--synthesize' &&
     a !== '--out' &&
     (outIdx === -1 || i !== outIdx + 1)
   );
@@ -320,6 +350,20 @@ async function main() {
     if (fetchSource) {
       const top = pickTopSource(out);
       if (top) out._topSource = await fetchTopSource(top.url);
+    }
+
+    if (synthesize) {
+      const dedupedSources = deduplicateSources(out);
+      out._sources = dedupedSources; // ranked deduped sources for reference
+      if (dedupedSources.length > 0) {
+        const prompt = buildSynthesisPrompt(query, dedupedSources);
+        try {
+          const synthesis = await runExtractor('gemini.mjs', prompt, null, false, ENGINE_TIMEOUTS.gemini);
+          out._synthesis = { answer: synthesis.answer };
+        } catch (e) {
+          out._synthesis = { error: e.message };
+        }
+      }
     }
 
     writeOutput(out, outFile);

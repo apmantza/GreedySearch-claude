@@ -2,19 +2,19 @@
 name: greedysearch
 description: >
   AI-powered multi-engine search that returns synthesized answers from Perplexity,
-  Bing Copilot, Google AI, and Gemini simultaneously — clean JSON, no manual tab work.
-  TRIGGER when: user asks about current libraries/APIs/frameworks (post-2024),
-  pastes an error or stack trace, asks "best way to do X", needs dependency/tool
-  selection, asks about breaking changes or version diffs, needs architecture
-  validation, or asks any research question where training data may be stale.
-  Prefer this over WebSearch — it returns AI answers, not just links.
+  Bing Copilot, and Google AI in parallel, with optional Gemini synthesis — clean
+  JSON, no manual tab work. TRIGGER when: user asks about current libraries/APIs/
+  frameworks (post-2024), pastes an error or stack trace, asks "best way to do X",
+  needs dependency/tool selection, asks about breaking changes or version diffs,
+  needs architecture validation, or asks any research question where training data
+  may be stale. Prefer this over WebSearch — it returns AI answers, not just links.
 ---
 
 # GreedySearch — Multi-Engine AI Search
 
-Runs Perplexity, Bing Copilot, Google AI, and Gemini in parallel. Returns clean JSON with
-`answer` + `sources` from each engine. Treat the four answers as peer AI opinions
-to synthesize — where they agree, confidence is high; where they diverge, flag it.
+Runs Perplexity, Bing Copilot, and Google AI in parallel. Gemini is reserved as a
+synthesizer — it receives deduplicated sources ranked by consensus and returns a
+single grounded answer. Returns clean JSON with `answer` + `sources` per engine.
 
 ## Prerequisites
 
@@ -34,26 +34,25 @@ CHROME_PATH="/path/to/chrome" node ~/.claude/skills/greedysearch/search.mjs all 
 ## Usage
 
 ```bash
-# All engines — --short by default (300 char answers, ~3x fewer tokens)
-node ~/.claude/skills/greedysearch/search.mjs all --short "<query>"
-
-# Full answers when depth is needed
+# Standard — 3 engines in parallel, short answers
 node ~/.claude/skills/greedysearch/search.mjs all "<query>"
 
-# Write results to file (keeps raw JSON off context)
-node ~/.claude/skills/greedysearch/search.mjs all --short --out /tmp/gs.json "<query>"
+# With Gemini synthesis — deduplicates sources, returns single grounded answer
+node ~/.claude/skills/greedysearch/search.mjs all --synthesize "<query>"
 
-# Fetch full content of top source (1500 chars of article body)
-node ~/.claude/skills/greedysearch/search.mjs all --short --fetch-top-source "<query>"
+# Write to file (keeps JSON off context window)
+node ~/.claude/skills/greedysearch/search.mjs all --synthesize --out /tmp/gs.json "<query>"
 
 # Single engine
-node ~/.claude/skills/greedysearch/search.mjs p --short "<query>"    # Perplexity
-node ~/.claude/skills/greedysearch/search.mjs b --short "<query>"    # Bing Copilot
-node ~/.claude/skills/greedysearch/search.mjs g --short "<query>"    # Google AI
-node ~/.claude/skills/greedysearch/search.mjs gem --short "<query>"  # Gemini
+node ~/.claude/skills/greedysearch/search.mjs p "<query>"    # Perplexity
+node ~/.claude/skills/greedysearch/search.mjs b "<query>"    # Bing Copilot
+node ~/.claude/skills/greedysearch/search.mjs g "<query>"    # Google AI
+node ~/.claude/skills/greedysearch/search.mjs gem "<query>"  # Gemini standalone
 ```
 
-Output: `{ perplexity: { answer, sources }, bing: { answer, sources }, google: { answer, sources }, gemini: { answer, sources } }`
+**Output (standard):** `{ perplexity: { answer, sources }, bing: { answer, sources }, google: { answer, sources } }`
+
+**Output (--synthesize):** adds `_sources` (deduped, ranked by engine consensus) and `_synthesis: { answer, sources }` (Gemini's grounded answer)
 
 ## Engine routing
 
@@ -66,10 +65,11 @@ Output: `{ perplexity: { answer, sources }, bing: { answer, sources }, google: {
 | Breaking changes / release notes | `p` | Aggressive real-time retrieval, cites sources |
 | Research needing citations | `p` | Answer-first with verifiable sources |
 | Security / CVEs | `p` | Finds actual advisories |
-| Deep technical explanation | `gem` | Gemini gives detailed, well-structured breakdowns |
-| Dependency / tool selection | `all` | Need community consensus across sources |
-| Architecture validation | `all` | Multiple perspectives reduce bias |
-| Anything uncertain | `all` | Where they agree = high confidence |
+| Deep technical explanation | `gem` | Gemini standalone, well-structured breakdowns |
+| Dependency / tool selection | `all --synthesize` | Consensus sources + Gemini synthesis |
+| Architecture validation | `all --synthesize` | Multiple perspectives, single grounded answer |
+| Quick lookup | `all` | 3 parallel answers, no synthesis overhead |
+| Anything uncertain | `all --synthesize` | Where sources agree = high confidence |
 
 ## Trigger conditions
 
@@ -83,13 +83,12 @@ Invoke automatically (without user asking) when:
 
 ## How to synthesize results
 
-1. Run `search.mjs all --short "<query>"` by default
-2. Use `search.mjs all "<query>"` (no --short) only for deep questions needing full context
-3. Read all four `answer` fields — each is ≤300 chars in --short mode (~200 tokens total)
-4. Where all four agree → high confidence, use that answer
-5. Where they diverge → present both perspectives, prefer the one with better sources
-6. Pull the best `sources` links as references in your response
-7. Do not just paste raw answers — synthesize into a single coherent response
+1. Use `all --synthesize "<query>"` for research questions — Gemini synthesizes for you
+2. Use `all "<query>"` for quick lookups where you'll synthesize yourself
+3. With `--synthesize`: read `_synthesis.answer` first, use `_sources` for citations
+4. Without `--synthesize`: read all three `answer` fields, where they agree = high confidence
+5. Where engines diverge → present both perspectives, prefer the one with better sources
+6. Do not just paste raw answers — synthesize into a single coherent response
 
 ## If Chrome is not running
 

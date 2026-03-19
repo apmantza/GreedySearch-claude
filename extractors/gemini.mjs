@@ -130,7 +130,9 @@ async function extractAnswer(tab) {
   `]).catch(() => '[]');
   const sources = JSON.parse(raw);
 
-  return { answer: answer.trim(), sources };
+  // Strip Gemini promotional footer text that sometimes appears at the end.
+  const clean = answer.trim().replace(/\n+By the way,.*$/s, '').replace(/\n+To unlock.*$/s, '').trim();
+  return { answer: clean, sources };
 }
 
 // ---------------------------------------------------------------------------
