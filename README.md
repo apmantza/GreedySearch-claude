@@ -1,6 +1,6 @@
 # GreedySearch
 
-A Claude Code skill that searches Perplexity, Bing Copilot, and Google AI simultaneously and returns clean, synthesized AI answers — not just links.
+A Claude Code skill that searches Perplexity, Bing Copilot, and Google AI simultaneously and returns clean, synthesized AI answers — not just links. Gemini acts as an optional synthesizer via `--synthesize`.
 
 Treats three AI engines as peer reviewers: where they agree, confidence is high; where they diverge, you see both perspectives.
 
@@ -10,10 +10,10 @@ Claude's training has a cutoff. For current library APIs, new framework releases
 
 ## What you get
 
-- **Parallel AI answers** from Perplexity, Bing Copilot, and Google AI in one shot
+- **Parallel AI answers** from Perplexity, Bing Copilot, and Google AI in one shot, with optional Gemini synthesis
 - **Automatic triggering** — Claude invokes it without being asked when questions touch post-cutoff topics
 - **Auto-launch** — Chrome starts automatically if not running, no manual setup per session
-- **Token-efficient** — `--short` flag caps answers at 300 chars; `--out` writes results to disk
+- **Gemini synthesis** — `--synthesize` deduplicates sources across all engines and feeds them to Gemini for a single grounded answer
 - **Source fetching** — `--fetch-top-source` pulls full article content from the best source URL
 - **Tab reuse** — existing engine tabs are reused across runs, no unnecessary tab churn
 - **Zero dependencies** — no `npm install`, pure Node.js built-ins
@@ -55,19 +55,20 @@ Chrome launches automatically on first use. No manual setup needed.
 # All engines in parallel (recommended)
 node ~/.claude/skills/greedysearch/search.mjs all "what changed in Next.js 15"
 
-# Token-efficient mode (300-char answers, ~3x fewer tokens)
-node ~/.claude/skills/greedysearch/search.mjs all --short "react server components"
+# All engines + Gemini synthesis of deduplicated sources
+node ~/.claude/skills/greedysearch/search.mjs all --synthesize "react server components"
 
 # Write results to file (keeps raw JSON off Claude's context)
-node ~/.claude/skills/greedysearch/search.mjs all --short --out /tmp/gs.json "query"
+node ~/.claude/skills/greedysearch/search.mjs all --out /tmp/gs.json "query"
 
 # Fetch full article content from best source (1500 chars)
-node ~/.claude/skills/greedysearch/search.mjs all --short --fetch-top-source "query"
+node ~/.claude/skills/greedysearch/search.mjs all --fetch-top-source "query"
 
 # Single engine
 node ~/.claude/skills/greedysearch/search.mjs p "react server components explained"    # Perplexity
 node ~/.claude/skills/greedysearch/search.mjs b "fix: cannot read property of undefined" # Bing
 node ~/.claude/skills/greedysearch/search.mjs g "best orm for node.js 2025"             # Google AI
+node ~/.claude/skills/greedysearch/search.mjs gem "explain transformer attention mechanism" # Gemini
 ```
 
 ### Chrome management (optional — auto-handled)
@@ -95,17 +96,20 @@ After install, Claude invokes GreedySearch without being asked when:
 | `p` | Perplexity | Breaking changes, release notes, research with citations, CVEs |
 | `b` | Bing Copilot | Error diagnosis, "how to implement X", code examples |
 | `g` | Google AI | "What is X", official docs, API references, canonical sources |
+| `gem` | Gemini | Deep technical explanations, synthesis of multiple sources |
 | `all` | All three | Dependency selection, architecture validation, anything uncertain |
 
 ## Flags
 
 | Flag | Description |
 |------|-------------|
-| `--short` | Truncate answers to 300 chars at word boundary — use by default |
+| `--synthesize` | Deduplicate sources across engines, feed to Gemini for a single grounded answer |
 | `--out <file>` | Write JSON to file instead of stdout — keeps context clean |
 | `--fetch-top-source` | Fetch 1500 chars of article body from the best source URL |
 
 ## Output format
+
+Standard output (Perplexity, Bing, Google):
 
 ```json
 {
@@ -120,12 +124,30 @@ After install, Claude invokes GreedySearch without being asked when:
 }
 ```
 
+With `--synthesize`, two additional fields are added:
+
+```json
+{
+  "perplexity": { "answer": "...", "sources": [...] },
+  "bing": { "answer": "...", "sources": [] },
+  "google": { "answer": "...", "sources": [...] },
+  "_sources": [
+    { "url": "...", "title": "...", "score": 3 }
+  ],
+  "_synthesis": {
+    "answer": "Gemini's single grounded answer synthesized from deduplicated sources..."
+  }
+}
+```
+
+`_sources` is ranked by consensus (how many engines cited the same URL). `_synthesis.answer` is Gemini's grounded response.
+
 ## How it works
 
 1. `search.mjs` checks if Chrome is running — launches it automatically if not
 2. `launch.mjs` starts a dedicated Chrome on port 9223 with `--disable-features=DevToolsPrivacyUI` — no "Allow remote debugging?" dialogs, isolated profile that never touches your main Chrome session
 3. Existing engine tabs are reused from cache; new tabs opened only when needed
-4. Extractors run in parallel: each navigates to its engine, submits the query, polls for stream completion, returns clean JSON
+4. Extractors run in parallel: each navigates to its engine, submits the query, polls for stream completion, returns clean JSON; when `--synthesize` is set, sources are deduplicated by consensus and sent to Gemini for a final synthesis round-trip
 5. Consent/cookie banners are dismissed automatically
 6. Chrome is controlled via the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) through **[chrome-cdp-skill](https://github.com/pasky/chrome-cdp-skill)**
 
@@ -141,6 +163,7 @@ extractors/
   perplexity.mjs   ← Perplexity AI extractor
   bing-copilot.mjs ← Bing Copilot extractor
   google-ai.mjs    ← Google AI Mode extractor
+  gemini.mjs       ← Gemini extractor / synthesizer
   consent.mjs      ← shared cookie/consent banner dismissal
 ```
 
