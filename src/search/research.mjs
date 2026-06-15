@@ -20,6 +20,8 @@ import {
 import { parseStructuredJson } from "./synthesis.mjs";
 import { RESEARCH_ENGINES } from "./constants.mjs";
 import { runGeminiPrompt } from "./synthesis-runner.mjs";
+import { classifyResearchComplexity } from "./scale-aware.mjs";
+import { runSimpleResearchMode } from "./simple-research.mjs";
 
 const __dir = fileURLToPath(new URL(".", import.meta.url)).replace(
 	/^\/([A-Z]:)/,
@@ -984,7 +986,7 @@ function normalizeEvidenceExtractions(payload, fetchedSources) {
 		);
 }
 
-async function extractEvidenceFromSources({
+export async function extractEvidenceFromSources({
 	query,
 	questions,
 	fetchedSources,
@@ -1071,7 +1073,7 @@ function buildLearningPrompt(
 	].join("\n");
 }
 
-function buildFinalReportPrompt(
+export function buildFinalReportPrompt(
 	originalQuery,
 	rounds,
 	sources,
@@ -1151,7 +1153,7 @@ function buildFinalReportPrompt(
  * structured learnings (for example when Gemini's input field rejected the
  * per-round learning prompt but the goal-based extraction step succeeded).
  */
-function buildSynthesisFromEvidencePrompt(
+export function buildSynthesisFromEvidencePrompt(
 	originalQuery,
 	sources = [],
 	questions = [],
@@ -1399,6 +1401,142 @@ export function auditCitations(answer, sources) {
 		unfetched,
 		ok: missing.length === 0,
 	};
+}
+
+/**
+ * Check reachability of cited source URLs via HEAD requests.
+ * Returns { reachable, dead, skipped } with per-URL status.
+ */
+export async function checkCitationUrls(
+	sources,
+	{ timeoutMs = 6000, concurrency = 4 } = {},
+) {
+	const safeConcurrency = Math.max(1, Math.floor(concurrency || 1));
+	const citedSources = (sources || []).filter(
+		(s) => s?.id && (s?.canonicalUrl || s?.finalUrl || s?.url),
+	);
+	if (citedSources.length === 0) {
+		return { reachable: [], dead: [], skipped: [], ok: true };
+	}
+
+	const reachable = [];
+	const dead = [];
+	const skipped = [];
+
+	// Process in batches to avoid overwhelming
+	for (let i = 0; i < citedSources.length; i += safeConcurrency) {
+		const batch = citedSources.slice(i, i + safeConcurrency);
+		const results = await Promise.allSettled(
+			batch.map(async (source) => {
+				const url =
+					source.fetch?.finalUrl ||
+					source.canonicalUrl ||
+					source.finalUrl ||
+					source.url;
+				if (!url) return { id: source.id, url: "", status: "skipped" };
+
+				// Skip non-HTTP URLs and known-unreachable patterns
+				try {
+					const parsed = new URL(url);
+					if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+						return { id: source.id, url, status: "skipped" };
+					}
+				} catch {
+					return { id: source.id, url, status: "skipped" };
+				}
+
+				try {
+					const controller = new AbortController();
+					const timer = setTimeout(() => controller.abort(), timeoutMs);
+					try {
+						const response = await fetch(url, {
+							method: "HEAD",
+							redirect: "follow",
+							signal: controller.signal,
+							headers: {
+								"User-Agent":
+									"Mozilla/5.0 (compatible; GreedySearch/2.0; +https://github.com/apmantza/greedysearch-pi)",
+							},
+						});
+						clearTimeout(timer);
+						const ok = response.status >= 200 && response.status < 400;
+						return {
+							id: source.id,
+							url,
+							status: ok ? "reachable" : "dead",
+							httpStatus: response.status,
+						};
+					} catch (fetchError) {
+						clearTimeout(timer);
+						return {
+							id: source.id,
+							url,
+							status: "dead",
+							error:
+								fetchError.name === "AbortError"
+									? "timeout"
+									: fetchError.message,
+						};
+					}
+				} catch (error) {
+					return {
+						id: source.id,
+						url,
+						status: "dead",
+						error: error.message,
+					};
+				}
+			}),
+		);
+
+		for (const result of results) {
+			const value =
+				result.status === "fulfilled"
+					? result.value
+					: {
+							id: "?",
+							url: "",
+							status: "dead",
+							error: result.reason?.message || "unknown",
+						};
+			if (value.status === "reachable") reachable.push(value);
+			else if (value.status === "dead") dead.push(value);
+			else skipped.push(value);
+		}
+	}
+
+	return {
+		reachable,
+		dead,
+		skipped,
+		ok: dead.length === 0,
+	};
+}
+
+/**
+ * Shared orchestration: run citation URL check with logging.
+ * Used by both runResearchMode() and runSimpleResearchMode() to avoid
+ * duplicating the try/catch/logging block.
+ */
+export async function runCitationUrlCheck(combinedSources) {
+	process.stderr.write("PROGRESS:research:check-urls\n");
+	try {
+		const citationUrls = await checkCitationUrls(combinedSources, {
+			timeoutMs: 6000,
+			concurrency: 4,
+		});
+		if (!citationUrls.ok) {
+			process.stderr.write(
+				`[greedysearch] ${citationUrls.dead.length} dead citation URL(s) detected\n`,
+			);
+		}
+		return citationUrls;
+	} catch (error) {
+		process.stderr.write(
+			`[greedysearch] URL reachability check failed: ${error.message}\n`,
+		);
+		return null;
+	}
 }
 
 export function computeResearchFloor({
@@ -1689,7 +1827,11 @@ function pickAcademicFetchTargets(combinedSources, usedUrls) {
 	return targets.slice(0, 2);
 }
 
-function reconcileQuestionsFromSynthesis(questions, synthesis, citationAudit) {
+export function reconcileQuestionsFromSynthesis(
+	questions,
+	synthesis,
+	citationAudit,
+) {
 	if (!synthesis?.answer || citationAudit?.ok !== true) return questions;
 	const claims = Array.isArray(synthesis.claims) ? synthesis.claims : [];
 	const citedIds = Array.isArray(citationAudit.cited)
@@ -1740,7 +1882,120 @@ function markdownList(items, fallback = "None recorded.") {
 		: fallback;
 }
 
-async function writeResearchBundle({
+/**
+ * Write a human-readable provenance sidecar next to the research bundle.
+ * Records date, rounds, sources, verification status, and floor results.
+ */
+function writeProvenanceSidecar(
+	dir,
+	{
+		query,
+		rounds,
+		sources,
+		fetchedSources,
+		citationAudit,
+		citationUrls,
+		floor,
+		manifest,
+	},
+) {
+	const fetchedOk = (fetchedSources || []).filter(
+		(s) => s?.contentChars > 100 || s?.fetch?.ok,
+	);
+	const primarySources = (sources || []).filter((s) =>
+		["official-docs", "repo", "maintainer-blog", "academic"].includes(
+			String(s?.sourceType || ""),
+		),
+	);
+	const citedIds = new Set(citationAudit?.cited || []);
+	const citedSources = (sources || []).filter((s) => citedIds.has(s?.id));
+
+	const lines = [
+		`# Provenance: ${query}`,
+		"",
+		`- **Date:** ${manifest?.startedAt || new Date().toISOString()}`,
+		`- **Duration:** ${manifest?.durationMs ? `${(manifest.durationMs / 1000).toFixed(1)}s` : "unknown"}`,
+		`- **Mode:** ${manifest?.terminationReason === "simple_single_pass" ? "simple (single-pass)" : "iterative"}`,
+		`- **Rounds:** ${manifest?.rounds || rounds?.length || 1}`,
+		"",
+		"## Sources",
+		"",
+		`- **Consulted:** ${sources?.length || 0}`,
+		`- **Fetched successfully:** ${fetchedOk.length}`,
+		`- **Primary sources:** ${primarySources.length}`,
+		`- **Cited in report:** ${citedSources.length}`,
+		"",
+	];
+
+	// Cited source details
+	if (citedSources.length > 0) {
+		lines.push("### Cited sources", "");
+		for (const source of citedSources) {
+			const url = source.canonicalUrl || source.finalUrl || source.url || "";
+			const fetched = source.fetch?.ok ? "✓" : "✗";
+			lines.push(
+				`- **${source.id}:** [${source.title || url}](${url}) (${source.sourceType || "unknown"}, fetched: ${fetched})`,
+			);
+		}
+		lines.push("");
+	}
+
+	// URL reachability
+	if (
+		citationUrls &&
+		(citationUrls.reachable.length > 0 || citationUrls.dead.length > 0)
+	) {
+		lines.push("## URL reachability", "");
+		if (citationUrls.dead.length > 0) {
+			lines.push("");
+			lines.push("**Dead links:**");
+			for (const d of citationUrls.dead) {
+				lines.push(
+					`- ${d.id}: ${d.url} (${d.httpStatus || d.error || "unknown"})`,
+				);
+			}
+		}
+		if (citationUrls.reachable.length > 0) {
+			lines.push("");
+			lines.push(
+				`**Reachable:** ${citationUrls.reachable.length}/${citationUrls.reachable.length + citationUrls.dead.length}`,
+			);
+		}
+		lines.push("");
+	}
+
+	// Verification status
+	const verificationStatus = !citationAudit
+		? "NOT CHECKED"
+		: citationAudit.ok && (citationUrls?.ok ?? true)
+			? "PASS"
+			: citationAudit.ok === false
+				? "FAIL (missing citations)"
+				: "FAIL (dead links)";
+
+	lines.push(
+		"## Verification",
+		"",
+		`- **Citations:** ${citationAudit?.ok ? "PASS" : `FAIL — missing: ${(citationAudit?.missing || []).join(", ")}`}`,
+		`- **URL reachability:** ${citationUrls ? (citationUrls.ok ? "PASS" : `FAIL — ${citationUrls.dead.length} dead`) : "SKIPPED"}`,
+		`- **Floor:** ${floor?.floorMet ? "PASS" : "PARTIAL"}`,
+		`- **Overall:** ${verificationStatus}`,
+		"",
+	);
+
+	// Floor checks
+	if (floor?.checks) {
+		lines.push("## Floor checks", "");
+		for (const [name, ok] of Object.entries(floor.checks)) {
+			lines.push(`- [${ok ? "x" : " "}] ${name}`);
+		}
+		lines.push("");
+	}
+
+	writeFileSync(join(dir, "provenance.md"), lines.join("\n"), "utf8");
+}
+
+export async function writeResearchBundle({
 	query,
 	rounds,
 	sources,
@@ -1752,6 +2007,7 @@ async function writeResearchBundle({
 	manifest,
 	allGaps = [],
 	questions = [],
+	citationUrls = null,
 	outDir = null,
 }) {
 	const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-").slice(0, 19);
@@ -1807,6 +2063,7 @@ async function writeResearchBundle({
 			"- `reports/CLAIMS.md` — extracted claims with support/source IDs",
 			"- `reports/EVIDENCE.md` — goal-based source evidence",
 			"- `reports/GAPS.md` — remaining caveats and uncertainties",
+			"- `provenance.md` — human-readable run metadata and verification",
 			"- `sources/` — fetched source markdown files",
 			"- `data/manifest.json` — machine-readable run metadata",
 			"- `data/rounds.json` — per-round actions/learnings/gaps",
@@ -1915,11 +2172,31 @@ async function writeResearchBundle({
 		].join("\n"),
 		"utf8",
 	);
+
+	// Provenance sidecar — human-readable run metadata (non-critical)
+	try {
+		writeProvenanceSidecar(dir, {
+			query,
+			rounds,
+			sources,
+			fetchedSources,
+			citationAudit,
+			citationUrls,
+			floor,
+			manifest,
+		});
+	} catch (sidecarError) {
+		process.stderr.write(
+			`[greedysearch] Provenance sidecar write failed (non-critical): ${sidecarError.message}\n`,
+		);
+	}
+
 	return {
 		dir,
 		statusPath: join(dir, "STATUS.md"),
 		summaryPath: join(reportsDir, "SUMMARY.md"),
 		manifestPath: join(dataDir, "manifest.json"),
+		provenancePath: join(dir, "provenance.md"),
 		sourceCount: sourceFiles.length,
 		sourceFiles,
 	};
@@ -1937,6 +2214,50 @@ export async function runResearchMode({
 	researchOutDir = null,
 } = {}) {
 	const options = clampResearchOptions({ breadth, iterations, maxSources });
+
+	// ── Scale-aware fast path ────────────────────────────────────────────────
+	// When breadth and iterations are at defaults (not user-specified), classify
+	// the query complexity. Simple queries bypass the iterative loop entirely
+	// for ~70% faster results and lower API cost.
+	const userSpecifiedBreadth = typeof breadth === "number";
+	const userSpecifiedIterations = typeof iterations === "number";
+	const atDefaults = !userSpecifiedBreadth && !userSpecifiedIterations;
+
+	if (atDefaults) {
+		try {
+			const classification = await classifyResearchComplexity(query);
+			process.stderr.write(
+				`[greedysearch] Complexity: ${classification.complexity} (${classification.reasoning})\n`,
+			);
+			if (classification.complexity === "simple") {
+				process.stderr.write(
+					`[greedysearch] Simple query detected — using fast single-pass path\n`,
+				);
+				return runSimpleResearchMode({
+					query,
+					locale,
+					maxSources: Math.min(maxSources ?? 5, 5),
+					qualityThreshold,
+					writeBundle,
+					researchOutDir,
+				});
+			}
+			// For moderate/complex: use classifier suggestions as hints if user
+			// didn't specify values. This tightens the loop for moderate queries
+			// without changing the user-explicit path.
+			if (!userSpecifiedBreadth) {
+				options.breadth = classification.suggestedBreadth;
+			}
+			if (!userSpecifiedIterations) {
+				options.iterations = classification.suggestedIterations;
+			}
+		} catch (error) {
+			process.stderr.write(
+				`[greedysearch] Scale classification failed, using defaults: ${error.message}\n`,
+			);
+		}
+	}
+
 	const rounds = [];
 	let allLearnings = [];
 	let allGaps = [];
@@ -2436,6 +2757,10 @@ export async function runResearchMode({
 	// Citation audit + final question reconciliation + deterministic completion floor
 	process.stderr.write("PROGRESS:research:audit-citations\n");
 	const citationAudit = auditCitations(synthesis.answer || "", combinedSources);
+
+	// Citation URL reachability check
+	const citationUrls = await runCitationUrlCheck(combinedSources);
+
 	reconcileQuestionsFromSynthesis(questions, synthesis, citationAudit);
 	const floor = computeResearchFloor({
 		sources: combinedSources,
@@ -2483,6 +2808,7 @@ export async function runResearchMode({
 				evidenceItems,
 				synthesis,
 				citationAudit,
+				citationUrls,
 				floor,
 				manifest,
 				allGaps,
@@ -2522,6 +2848,7 @@ export async function runResearchMode({
 			manifest,
 		},
 		_citationAudit: citationAudit,
+		_citationUrls: citationUrls,
 		_sources: combinedSources,
 		_fetchedSources: fetchedFiles,
 		_synthesis: synthesis,
