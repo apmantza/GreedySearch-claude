@@ -146,6 +146,24 @@ async function extractAnswerFromDom(tab) {
 	}
 }
 
+async function clickLatestModelResponseCopy(tab) {
+	return cdp([
+		"eval",
+		tab,
+		`(() => {
+			const responses = Array.from(document.querySelectorAll('model-response'));
+			const resp = responses[responses.length - 1];
+			if (!resp) return 'no-model-response';
+			const buttons = Array.from(resp.querySelectorAll('${S.copyButton}'));
+			const nonCodeButtons = buttons.filter((btn) => !btn.closest('pre, code, code-block, .code-block, .code-container'));
+			const btn = nonCodeButtons[nonCodeButtons.length - 1] || buttons[buttons.length - 1];
+			if (!btn) return 'no-copy-button';
+			btn.click();
+			return 'clicked';
+		})()`,
+	]);
+}
+
 async function extractAnswer(tab, query = "") {
 	const queryNorm = query.toLowerCase().trim();
 
@@ -190,21 +208,7 @@ async function extractAnswer(tab, query = "") {
 	// not the absolute last copy button on the page. The page has many
 	// copy icons (copy link, copy code, etc.) and the last one is not
 	// always the assistant's response copy button.
-	await cdp([
-		"eval",
-		tab,
-		`(() => {
-			const responses = Array.from(document.querySelectorAll('model-response'));
-			const resp = responses[responses.length - 1];
-			if (!resp) return 'no-model-response';
-			const buttons = Array.from(resp.querySelectorAll('${S.copyButton}'));
-			const nonCodeButtons = buttons.filter((btn) => !btn.closest('pre, code, code-block, .code-block, .code-container'));
-			const btn = nonCodeButtons[nonCodeButtons.length - 1] || buttons[buttons.length - 1];
-			if (!btn) return 'no-copy-button';
-			btn.click();
-			return 'clicked';
-		})()`,
-	]);
+	await clickLatestModelResponseCopy(tab);
 	await new Promise((r) => setTimeout(r, 600));
 
 	let answer = await cdp(["eval", tab, `window.${GLOBAL_VAR} || ''`]);
@@ -219,21 +223,7 @@ async function extractAnswer(tab, query = "") {
 	) {
 		console.error("[gemini] Clipboard echoed query, retrying in 2s...");
 		await new Promise((r) => setTimeout(r, 2000));
-		await cdp([
-			"eval",
-			tab,
-			`(() => {
-				const responses = Array.from(document.querySelectorAll('model-response'));
-				const resp = responses[responses.length - 1];
-				if (!resp) return 'no-model-response';
-				const buttons = Array.from(resp.querySelectorAll('${S.copyButton}'));
-				const nonCodeButtons = buttons.filter((btn) => !btn.closest('pre, code, code-block, .code-block, .code-container'));
-				const btn = nonCodeButtons[nonCodeButtons.length - 1] || buttons[buttons.length - 1];
-				if (!btn) return 'no-copy-button';
-				btn.click();
-				return 'clicked';
-			})()`,
-		]);
+		await clickLatestModelResponseCopy(tab);
 		await new Promise((r) => setTimeout(r, 600));
 		answer = await cdp(["eval", tab, `window.${GLOBAL_VAR} || ''`]);
 	}
@@ -247,7 +237,8 @@ async function extractAnswer(tab, query = "") {
 		queryNorm &&
 		(answerText.toLowerCase() === queryNorm ||
 			answerText.length < queryNorm.length);
-	const clipboardLooksComplete = answerText.length > 500 && !clipboardLooksEchoed;
+	const clipboardLooksComplete =
+		answerText.length > 500 && !clipboardLooksEchoed;
 	if (!clipboardLooksComplete) {
 		domFallback = await extractAnswerFromDom(tab);
 		const domExtendsClipboard =
