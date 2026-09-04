@@ -48,10 +48,10 @@ function isTabHealthy(entry) {
   return Date.now() - entry.createdAt < 5 * 60 * 1000;
 }
 
-async function createWarmTab() {
+async function createWarmTab(url = "about:blank") {
   const startedAt = Date.now();
   try {
-    const targetId = await openNewTab("about:blank");
+    const targetId = await openNewTab(url);
     const entry = { targetId, inUse: false, createdAt: Date.now() };
     // success clears degraded state
     _lastLaunchError = null;
@@ -67,7 +67,7 @@ async function createWarmTab() {
   }
 }
 
-export async function ensureWarmPool(size = DEFAULT_POOL_SIZE) {
+export async function ensureWarmPool(size = DEFAULT_POOL_SIZE, urls = null) {
   if (_warming) return _warming;
   _warming = (async () => {
     const healthy = _warmTabs.filter(isTabHealthy);
@@ -90,9 +90,12 @@ export async function ensureWarmPool(size = DEFAULT_POOL_SIZE) {
     _warmTabs = healthy;
     const need = Math.max(0, size - _warmTabs.length);
     if (need === 0) return;
-    // create missing tabs in parallel, like browser-pool launchQueue dedup
+    // create missing tabs in parallel, pre-seeded at engine URLs when provided (saves Target.createTarget per run)
     const results = await Promise.allSettled(
-      Array.from({ length: need }, () => createWarmTab()),
+      Array.from({ length: need }, (_, i) => {
+        const url = Array.isArray(urls) ? urls[i] || "about:blank" : "about:blank";
+        return createWarmTab(url);
+      }),
     );
     for (const r of results) {
       if (r.status === "fulfilled") _warmTabs.push(r.value);
@@ -105,8 +108,8 @@ export async function ensureWarmPool(size = DEFAULT_POOL_SIZE) {
   }
 }
 
-export async function acquireWarmTabs(count) {
-  await ensureWarmPool(count);
+export async function acquireWarmTabs(count, urls = null) {
+  await ensureWarmPool(count, urls);
   // pick idle tabs first
   const idle = _warmTabs.filter((t) => !t.inUse && isTabHealthy(t));
   const picked = idle.slice(0, count);
