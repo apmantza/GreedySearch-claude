@@ -66,11 +66,8 @@ import { normalizeQuery } from "../src/search/query.mjs";
 import { runResearchMode } from "../src/search/research.mjs";
 import { minimizeViaCDP } from "../src/search/minimize.mjs";
 import {
-	acquireWarmTabs,
 	cdpIsAvailable as brokerCdpIsAvailable,
-	collectProviderResults,
 	ensureWarmPool,
-	releaseWarmTabs,
 	warmPoolStats,
 } from "../src/search/cdp-broker.mjs";
 
@@ -316,20 +313,16 @@ async function main() {
 	}
 
 	if (engine === "all") {
-		// Warm CDP broker — pi-webaio style: pre-seeded tabs at engine URLs (saves 1.5s vs blank+nav)
-		let usedWarmTabs = false;
-		let warmTabIds = [];
+		// Warm CDP broker — ported from pi-webaio browser-pool: keep Chrome hot + tabs warm
 		try {
 			const poolOk = await brokerCdpIsAvailable();
 			if (poolOk) {
-				const urls = ["https://www.perplexity.ai/", "https://www.google.com/", "https://chatgpt.com/", "https://gemini.google.com/app"];
-				// Pre-seed up to ALL_ENGINES.length warm tabs at engine URLs
-				await ensureWarmPool(ALL_ENGINES.length, urls);
-				warmTabIds = await acquireWarmTabs(ALL_ENGINES.length, urls);
-				usedWarmTabs = warmTabIds.length === ALL_ENGINES.length;
+				await ensureWarmPool(ALL_ENGINES.length);
 				if (process.env.PI_TIMING === "1") {
 					const stats = warmPoolStats();
-					process.stderr.write(`[greedysearch] warm pool: reused ${warmTabIds.length} pre-seeded tabs (idle ${stats.idle}/${stats.total})\n`);
+					process.stderr.write(
+						`[greedysearch] warm pool: ${stats.idle} idle / ${stats.total} total${stats.degradedNotice ? ` — ${stats.degradedNotice}` : ""}\n`,
+					);
 				}
 			}
 		} catch {}
@@ -337,7 +330,6 @@ async function main() {
 
 		// Create fresh tabs for each engine in parallel, seeded directly to the
 		// engine homepage so extractors can skip the initial navigation.
-		// If warm pre-seeded tabs were acquired, reuse them (no Target.createTarget).
 		const ENGINE_START_URLS = {
 			perplexity: "https://www.perplexity.ai/",
 			google: "https://www.google.com/",
@@ -348,9 +340,9 @@ async function main() {
 			s2: "https://www.semanticscholar.org/",
 			logically: "https://logically.app/research-assistant/",
 		};
-		const engineTabs = usedWarmTabs
-			? warmTabIds
-			: await Promise.all(ALL_ENGINES.map((e) => openNewTab(ENGINE_START_URLS[e])));
+		const engineTabs = await Promise.all(
+			ALL_ENGINES.map((e) => openNewTab(ENGINE_START_URLS[e])),
+		);
 		// Refresh cache so the new tabs are discoverable by cdp.mjs
 		await cdp(["list"]);
 
@@ -722,8 +714,7 @@ async function main() {
 			});
 			return;
 		} finally {
-			if (usedWarmTabs) await releaseWarmTabs(engineTabs);
-			else await closeTabs(engineTabs);
+			await closeTabs(engineTabs);
 		}
 	}
 
