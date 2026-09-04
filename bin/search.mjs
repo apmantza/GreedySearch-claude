@@ -320,9 +320,7 @@ async function main() {
 				await ensureWarmPool(ALL_ENGINES.length);
 				if (process.env.PI_TIMING === "1") {
 					const stats = warmPoolStats();
-					process.stderr.write(
-						`[greedysearch] warm pool: ${stats.idle} idle / ${stats.total} total${stats.degradedNotice ? ` — ${stats.degradedNotice}` : ""}\n`,
-					);
+					process.stderr.write(`[greedysearch] warm pool: ${stats.idle} idle / ${stats.total} total${stats.degradedNotice ? ` — ${stats.degradedNotice}` : ""}\n`);
 				}
 			}
 		} catch {}
@@ -552,7 +550,8 @@ async function main() {
 						// polling budget is exhausted.
 						const allPollResults = await Promise.all(
 							stillBlocked.map(async (blockedEngine) => {
-								const tab = retryTabs[recoveryCandidates.indexOf(blockedEngine)];
+								const tab =
+									retryTabs[recoveryCandidates.indexOf(blockedEngine)];
 								const result = await waitForChallengeCleared({
 									tab,
 									engine: blockedEngine,
@@ -656,7 +655,11 @@ async function main() {
 			// Fetch all sources in a single batch (concurrency = source count).
 			if (shouldFetchSources && out._sources.length > 0) {
 				process.stderr.write("PROGRESS:source-fetch:start\n");
-				const fetchedSources = await fetchMultipleSources(out._sources, 5, 8000);
+				const fetchedSources = await fetchMultipleSources(
+					out._sources,
+					5,
+					8000,
+				);
 
 				out._sources = mergeFetchDataIntoSources(out._sources, fetchedSources);
 				out._fetchedSources = writeSourcesToFiles(fetchedSources);
@@ -688,7 +691,9 @@ async function main() {
 					};
 					process.stderr.write("PROGRESS:synthesis:done\n");
 				} catch (e) {
-					process.stderr.write(`[greedysearch] Synthesis failed: ${e.message}\n`);
+					process.stderr.write(
+						`[greedysearch] Synthesis failed: ${e.message}\n`,
+					);
 					out._synthesis = {
 						error: e.message,
 						synthesized: false,
@@ -701,7 +706,8 @@ async function main() {
 
 			if (fetchSource) {
 				const top = pickTopSource(out);
-				if (top) out._topSource = await fetchTopSource(top.canonicalUrl || top.url);
+				if (top)
+					out._topSource = await fetchTopSource(top.canonicalUrl || top.url);
 			}
 
 			// Include confidence metrics for grounded multi-engine searches.
@@ -887,14 +893,14 @@ async function main() {
 				);
 				return;
 			} finally {
-				if (keepVisibleForHuman) {
-					// Minimize the visible window so it's out of the way
-					minimizeChrome().catch(() => {});
-				} else {
+				if (!keepVisibleForHuman) {
 					await closeTab(retryTab);
 					await killHeadlessChrome();
 					delete process.env.GREEDY_SEARCH_VISIBLE;
 					process.env.GREEDY_SEARCH_HEADLESS = "1";
+				} else {
+					// Minimize the visible window so it's out of the way
+					minimizeChrome().catch(() => {});
 				}
 			}
 		}

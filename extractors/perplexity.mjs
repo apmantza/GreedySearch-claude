@@ -241,7 +241,9 @@ async function extractAnswer(tab, env) {
 		console.error("[perplexity] Clipboard empty — trying DOM fallback...");
 		const domResult = await extractAnswerFromDom(tab, env);
 		if (domResult) {
-			console.error(`[perplexity] DOM fallback succeeded (${env.fallbackUsed})`);
+			console.error(
+				`[perplexity] DOM fallback succeeded (${env.fallbackUsed})`,
+			);
 			return domResult;
 		}
 		throw new Error("Clipboard interceptor returned empty text");
@@ -295,7 +297,8 @@ async function main() {
 		let onPerplexity = false;
 		try {
 			const host = new URL(currentUrl).hostname.toLowerCase();
-			onPerplexity = host === "perplexity.ai" || host.endsWith(".perplexity.ai");
+			onPerplexity =
+				host === "perplexity.ai" || host.endsWith(".perplexity.ai");
 		} catch {}
 
 		if (!onPerplexity) {
@@ -514,7 +517,9 @@ async function main() {
 		const { answer, sources } = await extractAnswer(tab, env);
 
 		if (!answer)
-			throw new Error("No answer extracted — Perplexity may not have responded");
+			throw new Error(
+				"No answer extracted — Perplexity may not have responded",
+			);
 
 		const finalUrl = await cdp(["eval", tab, "document.location.href"]).catch(
 			() => "",

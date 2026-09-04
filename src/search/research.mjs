@@ -108,7 +108,8 @@ export function normalizeResearchQueries(
 	);
 	for (const item of rawQueries) {
 		const query = typeof item === "string" ? item : item?.query;
-		const researchGoal = typeof item === "string" ? "" : item?.researchGoal || "";
+		const researchGoal =
+			typeof item === "string" ? "" : item?.researchGoal || "";
 		addResearchQuery(queries, query, researchGoal, { exclude: excluded });
 	}
 
@@ -411,7 +412,12 @@ async function evaluateResearchQuality(
 ) {
 	try {
 		const rawEvaluation = await runGeminiPrompt(
-			buildQualityEvaluationPrompt(originalQuery, rounds, allLearnings, allGaps),
+			buildQualityEvaluationPrompt(
+				originalQuery,
+				rounds,
+				allLearnings,
+				allGaps,
+			),
 			{ timeoutMs: 120000 },
 		);
 		const evaluation = parseGeminiJson(rawEvaluation, {});
@@ -458,7 +464,9 @@ async function evaluateResearchQuality(
 		);
 		return {
 			score:
-				qualityHistory.length > 0 ? qualityHistory[qualityHistory.length - 1] : 5,
+				qualityHistory.length > 0
+					? qualityHistory[qualityHistory.length - 1]
+					: 5,
 			coverage: {},
 			knowledgeGaps: [],
 			shouldContinue: true,
@@ -616,7 +624,10 @@ async function executeResearchAction(
 		}
 
 		try {
-			const fetchResult = await fetchSingleResearchSource(normalizedUrl, maxChars);
+			const fetchResult = await fetchSingleResearchSource(
+				normalizedUrl,
+				maxChars,
+			);
 			usedUrls.add(normalizedUrl);
 
 			// Build a source entry from the fetch result
@@ -796,7 +807,9 @@ export function queriesToActions(queries) {
 
 function sourceKey(source) {
 	return (
-		normalizeUrl(source?.finalUrl || source?.canonicalUrl || source?.url || "") ||
+		normalizeUrl(
+			source?.finalUrl || source?.canonicalUrl || source?.url || "",
+		) ||
 		source?.id ||
 		""
 	);
@@ -817,7 +830,9 @@ function normalizeEvidenceExtractions(payload, fetchedSources) {
 				byId.get(String(item?.sourceId || "")) ||
 				byUrl.get(normalizeUrl(item?.url || "") || "");
 			const sourceId = String(item?.sourceId || source?.id || "");
-			const url = normalizeUrl(item?.url || source?.finalUrl || source?.url || "");
+			const url = normalizeUrl(
+				item?.url || source?.finalUrl || source?.url || "",
+			);
 			const answers = Array.isArray(item?.answers)
 				? item.answers
 						.map((answer) => ({
@@ -838,7 +853,9 @@ function normalizeEvidenceExtractions(payload, fetchedSources) {
 				newQuestions: uniqueStrings(item?.newQuestions || [], 6),
 			};
 		})
-		.filter((item) => item.sourceId || item.url || item.summary || item.evidence);
+		.filter(
+			(item) => item.sourceId || item.url || item.summary || item.evidence,
+		);
 }
 
 function buildEvidenceExtractionPrompt(
@@ -983,7 +1000,10 @@ export function buildEvidenceAndLearningPrompt(
 				id: source.id || `F${index + 1}`,
 				title: source.title || "",
 				url: source.finalUrl || source.url || source.canonicalUrl || "",
-				content: trimText(source.content || source.snippet || "", extractionLimit),
+				content: trimText(
+					source.content || source.snippet || "",
+					extractionLimit,
+				),
 			}));
 		const learningSourceSnippets = learningSources
 			.slice(0, learningCount)
@@ -991,69 +1011,72 @@ export function buildEvidenceAndLearningPrompt(
 				id: `F${index + 1}`,
 				title: source.title || "",
 				url: source.finalUrl || source.url || "",
-				snippet: trimText(source.content || source.snippet || "", learningLimit),
+				snippet: trimText(
+					source.content || source.snippet || "",
+					learningLimit,
+				),
 			}));
 
 		return [
-			"You are doing two combined research tasks for one round of an iterative research run. Perform BOTH tasks and return a single combined JSON object.",
-			"",
-			"TASK A — Goal-based evidence extraction:",
-			"For each source under 'Sources for evidence extraction', extract only information that helps answer the open questions.",
-			"Use original wording/details where useful. Do not invent answers; leave questions open if evidence is insufficient.",
-			"If a source answers one or more tracked questions, identify those question IDs explicitly.",
-			"Also propose genuinely new sub-questions discovered from the evidence.",
-			"",
-			"TASK B — Compact research-state learning extraction:",
-			"Using the round queries, question ledger, extracted source evidence, engine summaries, and fetched source snippets below, create dense, non-overlapping learnings with exact names, numbers, dates, limitations, and caveats where available.",
-			"Also propose follow-up search queries that would most improve confidence or fill gaps.",
-			"",
-			`Original research question: ${originalQuery}`,
-			`Open question ledger: ${JSON.stringify(openQuestions)}`,
-			`Round queries: ${JSON.stringify(roundQueries)}`,
-			`Question ledger: ${JSON.stringify(questions)}`,
-			`Extracted source evidence so far: ${JSON.stringify(evidenceItems.slice(-12))}`,
-			`Engine summaries: ${JSON.stringify(searchSummaries)}`,
-			`Sources for evidence extraction (Task A): ${JSON.stringify(extractionSourceSnippets)}`,
-			`Fetched source snippets (Task B context): ${JSON.stringify(learningSourceSnippets)}`,
-			"",
-			"Respond ONLY with JSON wrapped in BEGIN_JSON / END_JSON markers, combining both tasks into one object:",
-			"BEGIN_JSON",
-			JSON.stringify(
-				{
-					extractions: [
-						{
-							sourceId: "S1",
-							url: "https://example.com/source",
-							rational: "why this source matters for the goal",
-							evidence:
-								"specific quoted/paraphrased evidence with numbers, dates, caveats",
-							summary: "concise contribution to the research question",
-							answers: [
-								{
-									id: "Q1",
-									evidence: "brief evidence that closes the question",
-								},
-							],
-							newQuestions: ["new sub-question raised by this source"],
-						},
-					],
-					learnings: ["concise, information-dense learning"],
-					answeredQuestions: [
-						{
-							id: "Q1",
-							evidence: "brief evidence that closes this question",
-							sourceIds: ["S1"],
-						},
-					],
-					newQuestions: ["new sub-question discovered from the evidence"],
-					followUpQueries: ["specific next search query"],
-					gaps: ["important uncertainty or missing evidence"],
-				},
-				null,
-				2,
-			),
-			"END_JSON",
-		].join("\n");
+		"You are doing two combined research tasks for one round of an iterative research run. Perform BOTH tasks and return a single combined JSON object.",
+		"",
+		"TASK A — Goal-based evidence extraction:",
+		"For each source under 'Sources for evidence extraction', extract only information that helps answer the open questions.",
+		"Use original wording/details where useful. Do not invent answers; leave questions open if evidence is insufficient.",
+		"If a source answers one or more tracked questions, identify those question IDs explicitly.",
+		"Also propose genuinely new sub-questions discovered from the evidence.",
+		"",
+		"TASK B — Compact research-state learning extraction:",
+		"Using the round queries, question ledger, extracted source evidence, engine summaries, and fetched source snippets below, create dense, non-overlapping learnings with exact names, numbers, dates, limitations, and caveats where available.",
+		"Also propose follow-up search queries that would most improve confidence or fill gaps.",
+		"",
+		`Original research question: ${originalQuery}`,
+		`Open question ledger: ${JSON.stringify(openQuestions)}`,
+		`Round queries: ${JSON.stringify(roundQueries)}`,
+		`Question ledger: ${JSON.stringify(questions)}`,
+		`Extracted source evidence so far: ${JSON.stringify(evidenceItems.slice(-12))}`,
+		`Engine summaries: ${JSON.stringify(searchSummaries)}`,
+		`Sources for evidence extraction (Task A): ${JSON.stringify(extractionSourceSnippets)}`,
+		`Fetched source snippets (Task B context): ${JSON.stringify(learningSourceSnippets)}`,
+		"",
+		"Respond ONLY with JSON wrapped in BEGIN_JSON / END_JSON markers, combining both tasks into one object:",
+		"BEGIN_JSON",
+		JSON.stringify(
+			{
+				extractions: [
+					{
+						sourceId: "S1",
+						url: "https://example.com/source",
+						rational: "why this source matters for the goal",
+						evidence:
+							"specific quoted/paraphrased evidence with numbers, dates, caveats",
+						summary: "concise contribution to the research question",
+						answers: [
+							{
+								id: "Q1",
+								evidence: "brief evidence that closes the question",
+							},
+						],
+						newQuestions: ["new sub-question raised by this source"],
+					},
+				],
+				learnings: ["concise, information-dense learning"],
+				answeredQuestions: [
+					{
+						id: "Q1",
+						evidence: "brief evidence that closes this question",
+						sourceIds: ["S1"],
+					},
+				],
+				newQuestions: ["new sub-question discovered from the evidence"],
+				followUpQueries: ["specific next search query"],
+				gaps: ["important uncertainty or missing evidence"],
+			},
+			null,
+			2,
+		),
+		"END_JSON",
+	].join("\n");
 	};
 
 	let extractionCount = Math.min(4, extractionSources.length);
@@ -1078,7 +1101,10 @@ export function buildEvidenceAndLearningPrompt(
 				minimumSourceChars,
 				Math.floor(extractionLimit / 2),
 			);
-			learningLimit = Math.max(minimumSourceChars, Math.floor(learningLimit / 2));
+			learningLimit = Math.max(
+				minimumSourceChars,
+				Math.floor(learningLimit / 2),
+			);
 		} else if (learningCount > 1) {
 			learningCount -= 1;
 		} else if (extractionCount > 1) {
@@ -1344,13 +1370,17 @@ async function runFastAllSearch(query, { locale = null, short = true } = {}) {
 		proc.on("close", (code) => {
 			clearTimeout(t);
 			if (code !== 0) {
-				reject(new Error(err.trim() || `search child exited with code ${code}`));
+				reject(
+					new Error(err.trim() || `search child exited with code ${code}`),
+				);
 				return;
 			}
 			try {
 				resolve(JSON.parse(out.trim()));
 			} catch {
-				reject(new Error(`Invalid JSON from research child: ${out.slice(0, 200)}`));
+				reject(
+					new Error(`Invalid JSON from research child: ${out.slice(0, 200)}`),
+				);
 			}
 		});
 	});
@@ -1574,7 +1604,10 @@ export async function checkCitationUrls(
 							id: source.id,
 							url,
 							status: "dead",
-							error: fetchError.name === "AbortError" ? "timeout" : fetchError.message,
+							error:
+								fetchError.name === "AbortError"
+									? "timeout"
+									: fetchError.message,
 						};
 					}
 				} catch (error) {
@@ -1909,7 +1942,8 @@ export function updateQuestionLedger(
  * short label for the researchGoal. Filters out anything already fetched.
  */
 function pickAcademicFetchTargets(combinedSources, usedUrls) {
-	if (!Array.isArray(combinedSources) || combinedSources.length === 0) return [];
+	if (!Array.isArray(combinedSources) || combinedSources.length === 0)
+		return [];
 	const ACADEMIC_HOSTS = ["arxiv.org", "semanticscholar.org", "doi.org"];
 	const seen = new Set();
 	const targets = [];
@@ -1948,7 +1982,9 @@ export function reconcileQuestionsFromSynthesis(
 ) {
 	if (!synthesis?.answer || citationAudit?.ok !== true) return questions;
 	const claims = Array.isArray(synthesis.claims) ? synthesis.claims : [];
-	const citedIds = Array.isArray(citationAudit.cited) ? citationAudit.cited : [];
+	const citedIds = Array.isArray(citationAudit.cited)
+		? citationAudit.cited
+		: [];
 	if (claims.length === 0 || citedIds.length === 0) return questions;
 
 	for (const question of questions) {
@@ -1956,7 +1992,10 @@ export function reconcileQuestionsFromSynthesis(
 		let bestClaim = null;
 		let bestScore = 0;
 		for (const claim of claims) {
-			const score = jaccardSimilarity(question.question || "", claim.claim || "");
+			const score = jaccardSimilarity(
+				question.question || "",
+				claim.claim || "",
+			);
 			if (score > bestScore) {
 				bestScore = score;
 				bestClaim = claim;
@@ -1986,7 +2025,9 @@ function renderQuestionStatus(questions) {
 
 function markdownList(items, fallback = "None recorded.") {
 	const unique = uniqueStrings(items);
-	return unique.length ? unique.map((item) => `- ${item}`).join("\n") : fallback;
+	return unique.length
+		? unique.map((item) => `- ${item}`).join("\n")
+		: fallback;
 }
 
 /**
@@ -2057,7 +2098,9 @@ export function writeProvenanceSidecar(
 			lines.push("");
 			lines.push("**Dead links:**");
 			for (const d of citationUrls.dead) {
-				lines.push(`- ${d.id}: ${d.url} (${d.httpStatus || d.error || "unknown"})`);
+				lines.push(
+					`- ${d.id}: ${d.url} (${d.httpStatus || d.error || "unknown"})`,
+				);
 			}
 		}
 		if (citationUrls.reachable.length > 0) {
@@ -2118,7 +2161,10 @@ export async function writeResearchBundle({
 	const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-").slice(0, 19);
 	const dir =
 		outDir ||
-		join(DEFAULT_RESEARCH_BUNDLE_ROOT, `${stamp}_${slugifyResearchName(query)}`);
+		join(
+			DEFAULT_RESEARCH_BUNDLE_ROOT,
+			`${stamp}_${slugifyResearchName(query)}`,
+		);
 	const reportsDir = join(dir, "reports");
 	const sourcesDir = join(dir, "sources");
 	const dataDir = join(dir, "data");
@@ -2411,9 +2457,13 @@ export async function runResearchMode({
 			try {
 				// Action-based planning: produces search + fetchUrl actions
 				const rawPlan = await runGeminiPrompt(
-					buildResearchActionPrompt(query, roundBreadth, allLearnings, allGaps, [
-						...usedUrls,
-					]),
+					buildResearchActionPrompt(
+						query,
+						roundBreadth,
+						allLearnings,
+						allGaps,
+						[...usedUrls],
+					),
 					{ timeoutMs: 120000 },
 				);
 				let planActions = parseActionPlan(rawPlan, roundBreadth);
@@ -2554,7 +2604,9 @@ export async function runResearchMode({
 		}
 
 		// Collect sources from search actions
-		const searchActionRuns = actionRuns.filter((r) => r.action.type === "search");
+		const searchActionRuns = actionRuns.filter(
+			(r) => r.action.type === "search",
+		);
 		const fetchActionRuns = actionRuns.filter(
 			(r) => r.action.type === "fetchUrl",
 		);
@@ -2593,7 +2645,11 @@ export async function runResearchMode({
 				}
 			};
 			for (const source of fetchedSources) {
-				for (const value of [source?.url, source?.finalUrl, source?.canonicalUrl]) {
+				for (const value of [
+					source?.url,
+					source?.finalUrl,
+					source?.canonicalUrl,
+				]) {
 					const key = safeNormalizeFetchUrl(value);
 					if (key) fetchedUrlKeys.add(key);
 				}
@@ -2611,7 +2667,10 @@ export async function runResearchMode({
 				Math.min(3, remainingFetchBudget || 1),
 			);
 			fetchedSources = dedupeFetchedSources([...fetchedSources, ...fetched]);
-			combinedSources = mergeFetchDataIntoSources(combinedSources, fetchedSources);
+			combinedSources = mergeFetchDataIntoSources(
+				combinedSources,
+				fetchedSources,
+			);
 		}
 		fetchedSources = annotateFetchedSourcesWithIds(
 			fetchedSources,
@@ -2719,7 +2778,9 @@ export async function runResearchMode({
 		const evaluation = isFinalRound
 			? {
 					score:
-						qualityHistory.length > 0 ? qualityHistory[qualityHistory.length - 1] : 5,
+						qualityHistory.length > 0
+							? qualityHistory[qualityHistory.length - 1]
+							: 5,
 					coverage: {},
 					knowledgeGaps: [],
 					shouldContinue: false,
@@ -2896,7 +2957,8 @@ export async function runResearchMode({
 				...synthesis,
 				...parsedEvidence,
 				rawAnswer: rawEvidenceReport.answer || synthesis.answer || "",
-				geminiSources: rawEvidenceReport.sources || synthesis.geminiSources || [],
+				geminiSources:
+					rawEvidenceReport.sources || synthesis.geminiSources || [],
 				synthesized: true,
 				synthesisMode: "evidence_fallback",
 			};
@@ -2921,7 +2983,10 @@ export async function runResearchMode({
 	const citationAudit = auditCitations(synthesis.answer || "", combinedSources);
 
 	// Citation URL reachability check
-	const citationUrls = await runCitationUrlCheck(combinedSources, citationAudit);
+	const citationUrls = await runCitationUrlCheck(
+		combinedSources,
+		citationAudit,
+	);
 
 	reconcileQuestionsFromSynthesis(questions, synthesis, citationAudit);
 	const floor = computeResearchFloor({
@@ -3021,8 +3086,8 @@ export async function runResearchMode({
 				fetchedSources.length > 0
 					? Number(
 							(
-								fetchedSources.filter((source) => source.contentChars > 100).length /
-								fetchedSources.length
+								fetchedSources.filter((source) => source.contentChars > 100)
+									.length / fetchedSources.length
 							).toFixed(2),
 						)
 					: 0,
@@ -3035,10 +3100,14 @@ export async function runResearchMode({
 function dedupeFetchedSources(sources) {
 	const byUrl = new Map();
 	for (const source of sources) {
-		const key = source?.id || normalizeUrl(source?.finalUrl || source?.url || "");
+		const key =
+			source?.id || normalizeUrl(source?.finalUrl || source?.url || "");
 		if (!key) continue;
 		const existing = byUrl.get(key);
-		if (!existing || (source.contentChars || 0) > (existing.contentChars || 0)) {
+		if (
+			!existing ||
+			(source.contentChars || 0) > (existing.contentChars || 0)
+		) {
 			byUrl.set(key, source);
 		}
 	}
@@ -3076,7 +3145,10 @@ function dedupeFetchedSources(sources) {
 		const sourceInfo = getTokenInfo(source);
 		const duplicateIndex = out.findIndex((existing) => {
 			const existingInfo = tokenInfo.get(existing);
-			if (sourceInfo.length < 400 || existingInfo.length < 400) {
+			if (
+				sourceInfo.length < 400 ||
+				existingInfo.length < 400
+			) {
 				return false;
 			}
 			return jaccardSetSimilarity(sourceInfo.tokens, existingInfo.tokens) >= 0.9;
