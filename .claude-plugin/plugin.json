@@ -1,7 +1,7 @@
 {
   "name": "greedysearch",
   "version": "2.1.6",
-  "description": "Multi-engine AI web search — Perplexity, Bing Copilot, and Google AI in parallel with Gemini synthesis. No API keys needed.",
+  "description": "Multi-engine AI web search — Perplexity, Google AI, ChatGPT, and Gemini in parallel. No API keys needed.",
   "author": {
     "name": "Apostolos Mantzaris",
     "email": "apmantza@gmail.com"
@@ -11,8 +11,8 @@
   "keywords": [
     "search",
     "perplexity",
-    "bing",
     "google",
+    "chatgpt",
     "gemini",
     "research",
     "web-search"
